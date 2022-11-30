@@ -1,6 +1,7 @@
 import os
 
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
 from sklearn.metrics import roc_auc_score, roc_curve, accuracy_score
 from sklearn.model_selection import train_test_split
@@ -8,21 +9,21 @@ from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from model import Model
-from mydataset import MyDataset
-
-loss_func = torch.nn.BCELoss()
+# from EdgeClassifier.model import Model
+from EdgeClassifier.params_model import Model
+from EdgeClassifier.mydataset import MyDataset
 
 
 class Activator:
-    def __init__(self, in_size, x_train, y_train, x_test, y_test, plots_dir, is_nni=False, gpu=False,
-                 params={}, nni_metric='loss', should_plot=True):
+    def __init__(self, x_train, y_train, x_test, y_test, plots_dir, is_nni=False, gpu=False,
+                 params={}, nni_metric='loss', should_plot=True, gpu_device=0):
         self.is_nni = is_nni
         self.verbose = True
         self.should_tqdm = True
         self.plots_dir = plots_dir
         self.should_plot = should_plot
         self.gpu = gpu
+        self.gpu_device = gpu_device
 
         if self.is_nni:
             import nni
@@ -34,11 +35,22 @@ class Activator:
         dropout = 0.2 if 'dropout' not in params else params['dropout']
         self.epochs = 100 if 'epochs' not in params else params['epochs']
         train_batch_size = 512 if 'batch_size' not in params else params['batch_size']
-        # decide here about loss function !
+        self.loss_func = torch.nn.BCELoss() if 'loss' not in params else params['loss']
+        self.num_classes = 2 if 'num_classes' not in params else params['num_classes']
+        self.is_binary = self.num_classes == 2
 
-        self._model = Model(in_size, dropout)
+        in_size = len(x_train[0])  # to decide the size of the first layer in the model.
+        self._model = Model({
+            "activation": torch.nn.Sigmoid(),
+            "dropout": dropout,
+            "layers": [(in_size, 250, True),
+                       (250, 300, True),
+                       (300, 150, True),
+                       (150, 1, False)
+                       ]
+        })
+        # self._model = Model(in_size, dropout)
         self.optimizer = torch.optim.Adam(self._model.parameters(), lr=self.lr, weight_decay=weight_decay)
-        # , betas=(0.9, 0.999))  # weight_decay is L2 regularization
 
         # initialize validation set from train
         x_train, x_valid, y_train, y_valid = train_test_split(x_train, y_train, test_size=0.2)
@@ -52,7 +64,7 @@ class Activator:
         x_test = torch.tensor(scaler.transform(x_test), dtype=torch.float)
 
         # Copy the tensors to the CPU/GPU
-        self.device = torch.device("cuda:0" if gpu and torch.cuda.is_available() else "cpu")
+        self.device = torch.device(f"cuda:{self.gpu_device}" if gpu and torch.cuda.is_available() else "cpu")
         self._model.to(self.device)
         x_train = x_train.to(self.device)
         y_train = y_train.to(torch.float).to(self.device)
@@ -80,6 +92,22 @@ class Activator:
         self.valid_bad_epoch_counter = 0
         self.last_loss = 1e6  # bigger than any other loss
 
+    def print_epoch_results(self, epoch, train_results, valid_results):
+        msg = f"\n epoch {epoch} - " \
+              f"[Train] Acc: {train_results['acc']:.3f} | " \
+              f"Loss: {train_results['loss']:.5f} | "
+        if self.is_binary:
+            msg += f"Auc: {train_results['auc']:.3f} || "
+
+        msg += f"[Validation] Acc: {valid_results['acc']:.3f} | " \
+               f"Loss: {valid_results['loss']:.5f} | "
+        if self.is_binary:
+            msg += f"Auc: {valid_results['auc']:.3f}"
+
+        msg += "\n"
+        print(msg)
+
+    # def build_data_loaders(self):
     def train(self, verbose=True, should_tqdm=True):
         self.verbose = verbose
         self.should_tqdm = should_tqdm
@@ -90,17 +118,7 @@ class Activator:
                 valid_results = self.run_epoch(self.validation_loader, is_training=False)
 
             if not self.is_nni and self.verbose:
-                # prints and figures
-                msg = f"\n epoch {epoch} - " \
-                      f"[Train] Acc: {train_results['acc']:.3f} | " \
-                      f"Auc: {train_results['auc']:.3f} | " \
-                      f"Loss: {train_results['loss']:.5f} || "
-
-                msg += f"[Validation] Acc: {valid_results['acc']:.3f} | " \
-                       f"Auc: {valid_results['auc']:.3f} | " \
-                       f"Loss: {valid_results['loss']:.5f}\n"
-
-                print(msg)
+                self.print_epoch_results(epoch, train_results, valid_results)
 
             if not self.is_nni and self.should_plot:
                 self.train_losses.append(train_results['loss'])
@@ -135,13 +153,15 @@ class Activator:
         if not self.is_nni and self.verbose:
             # test dataset and figure creation
             test_results = self.run_epoch(self.test_loader, is_training=False)
-            msg = f"\n[-- Test --] Acc: {test_results['acc']:.3f} | " \
-                  f"Auc: {test_results['auc']:.3f} | " \
-                  f"Loss: {test_results['loss']:.5f}\n"
+            msg = f"\n[-- Test --] Acc: {test_results['acc']:.3f} | "
+            if self.is_binary:
+                msg += f"Auc: {test_results['auc']:.3f} | "
+            msg += f"Loss: {test_results['loss']:.5f}\n"
             print(msg)
 
         if not self.is_nni and self.should_plot:
-            self.plot_roc_curve(self.test_loader, os.path.join(self.plots_dir, "roc.png"))
+            if self.is_binary:
+                self.plot_roc_curve(self.test_loader, os.path.join(self.plots_dir, "roc.png"))
             self.create_plots()
 
     def run_epoch(self, loader, is_training=True):
@@ -167,7 +187,7 @@ class Activator:
                 self.optimizer.zero_grad()
 
             y_pred = self._model(features)
-            loss = loss_func(y_pred, labels.to(torch.float))
+            loss = self.loss_func(y_pred, labels.to(torch.float))
 
             if is_training:
                 loss.backward()
@@ -183,8 +203,9 @@ class Activator:
         preds = torch.concat(epoch_preds).cpu().detach().numpy()
 
         return {
-            "acc": accuracy_score(labels, preds > 0.5),
-            "auc": roc_auc_score(labels, preds),
+            "acc": accuracy_score(labels, preds > 0.5) if self.is_binary else
+            accuracy_score(labels, np.argmax(preds, axis=1)),
+            "auc": roc_auc_score(labels, preds) if self.is_binary else 0,
             "loss": epoch_loss / len(loader)
         }
 
@@ -239,3 +260,7 @@ class Activator:
         plt.xlabel('False Positive Rate')
         plt.ylabel('True Positive Rate')
         plt.savefig(path)
+
+    @property
+    def model(self):
+        return self._model

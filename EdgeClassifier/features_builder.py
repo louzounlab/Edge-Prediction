@@ -16,7 +16,7 @@ class FeaturesBuilder:
         prediction task.
     """
 
-    def __init__(self, graph_name: str, nxg, pkl_folder, test_size=0.15):
+    def __init__(self, graph_name: str, nxg, pkl_folder, test_size=0.25, topology_features=None, data_features=[]):
         """
         Initializes the class with the graph and other necessary information.
         :param graph_name: The name of the graph (for pickling)
@@ -24,6 +24,8 @@ class FeaturesBuilder:
         :param pkl_folder: Path to a folder which the pickle files will be saved inside
         :param test_size: Size of the test group from all the edges (between 0 and 1)
         """
+        if data_features is None:
+            data_features = []
         self.pkl_folder = pkl_folder
         self.graph_pkl_path = path.join(pkl_folder, graph_name)
 
@@ -42,7 +44,9 @@ class FeaturesBuilder:
         self.x_train = None
 
         self.test_size = test_size
-        self.features_list = ["general", "closeness_centrality", "bfs_moments", "page_rank", "motif3"]
+        self.features_list = topology_features if topology_features is not None else \
+            ["in_degree", "out_degree", "closeness_centrality", "bfs_moments", "page_rank", "motif3"]
+        self.data_features = data_features
 
     def pickle_load(self, pkl_path):
         with open(pkl_path, "rb") as f:
@@ -88,7 +92,7 @@ class FeaturesBuilder:
         ftr_calc.calculate_features()
         self._nodes_features = ftr_calc.feature_matrix
 
-    def set_edge_features(self, source, target, edge_num):
+    def set_topological_features(self, source, target, edge_num):
         """
         :param source: The index of the source node of the edge
         :param target: The index of the target node of the edge
@@ -102,13 +106,18 @@ class FeaturesBuilder:
             self._edges_features[edge_num][2 * index + 1] = \
                 (self._nodes_features[source][index] + self._nodes_features[target][index]) / 2
 
+    def set_data_features(self, edge_num, dic: dict):
+        base = self.number_of_node_features * 2
+        for i, key in enumerate(self.data_features):
+            self._edges_features[edge_num][base + i] = dic[key]
+
     def calc_edge_features(self):
         """
             Calculates the sizes and create tensors for the edges-features and the labels.
             Then, create two edge features from each node feature (avg and sub of the 2 node's feature)
         """
-        self.number_of_node_features = self._nodes_features.size(dim=1)
-        self.number_of_edge_features = 2 * self.number_of_node_features
+        self.number_of_node_features = self._nodes_features.shape[1]
+        self.number_of_edge_features = 2 * self.number_of_node_features + len(self.data_features)
 
         # Creates torch with size - number of edges X number of features - which will keep the edges features
         self._edges_features = torch.empty((self.nxg.number_of_edges(), self.number_of_edge_features),
@@ -117,8 +126,9 @@ class FeaturesBuilder:
 
         # For each edge - calculates the features from the node features of the edge's nodes.
         for edge_index, (source, target, dic) in tqdm(enumerate(self.nxg.edges(data=True))):
-            self.set_edge_features(source, target, edge_index)
-            self._labels[edge_index] = 0 if dic['label'] < 1 else 1
+            self.set_topological_features(source, target, edge_index)
+            self.set_data_features(edge_index, dic)
+            self._labels[edge_index] = dic['label']  # The multiclass case
 
     def apply_log(self):
         """

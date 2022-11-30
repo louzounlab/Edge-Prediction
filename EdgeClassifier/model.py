@@ -8,7 +8,7 @@ class Model(torch.nn.Module):
         self.linear1 = torch.nn.Linear(in_deg, 250)
         self.linear2 = torch.nn.Linear(250, 300)
         self.linear3 = torch.nn.Linear(300, 150)
-        self.linear4 = torch.nn.Linear(150, 1)
+        self.linear4 = torch.nn.Linear(150, 1)  # should chane this - to output size of labels number
 
         self.activation = torch.nn.Sigmoid()
 
