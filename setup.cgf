@@ -1,0 +1,20 @@
+[metadata]
+name = EdgeClassifier
+version = 0.0.11
+license = MIT
+maintainer = Ziv Naim
+author = Ziv Naim
+maintainer_email = zivnaim3@gmail.com
+url = https://github.com/louzounlab/Edge-Prediction
+description = A python package for classify edges of graph based on topological features and neural networks.
+long_description = file: README.md
+long_description_content_type = text/markdown
+keywords = gpu graph edges edge classification neural networks
+description_file = README.md
+license_files = LICENSE
+
+python_requires = >=3.6.8
+include_package_data = 1
+
+[bdist_wheel]
+universal = 1
