@@ -9,7 +9,6 @@ from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-# from EdgeClassifier.model import Model
 from EdgeClassifier.params_model import Model
 from EdgeClassifier.mydataset import MyDataset
 
@@ -38,18 +37,23 @@ class Activator:
         self.loss_func = torch.nn.BCELoss() if 'loss' not in params else params['loss']
         self.num_classes = 2 if 'num_classes' not in params else params['num_classes']
         self.is_binary = self.num_classes == 2
+        activation = torch.nn.Sigmoid() if 'activation' not in params else params['activation']
 
         in_size = len(x_train[0])  # to decide the size of the first layer in the model.
+        layers = [(in_size, 250, True),
+                  (250, 125, True),
+                  (125, 1 if self.is_binary else self.num_classes, False)
+                  ] if 'layers' not in params else params['layers']
+
+        # Just to make sure that the inputs size fits to the number of features.
+        layers[0] = (in_size, layers[0][1], layers[0][2])
         self._model = Model({
-            "activation": torch.nn.Sigmoid(),
+            "activation": activation,
             "dropout": dropout,
-            "layers": [(in_size, 250, True),
-                       (250, 300, True),
-                       (300, 150, True),
-                       (150, 1, False)
-                       ]
+            "layers": layers,
+            # "end_function": torch.nn.Softmax() if self.is_binary else lambda x: x
+            "end_function": torch.nn.Sigmoid() if self.is_binary else torch.nn.LogSoftmax(dim=1)
         })
-        # self._model = Model(in_size, dropout)
         self.optimizer = torch.optim.Adam(self._model.parameters(), lr=self.lr, weight_decay=weight_decay)
 
         # initialize validation set from train
@@ -187,7 +191,10 @@ class Activator:
                 self.optimizer.zero_grad()
 
             y_pred = self._model(features)
-            loss = self.loss_func(y_pred, labels.to(torch.float))
+            if self.is_binary:
+                loss = self.loss_func(y_pred, labels.to(torch.float))
+            else:
+                loss = self.loss_func(y_pred, labels.type(torch.long))
 
             if is_training:
                 loss.backward()
@@ -221,12 +228,13 @@ class Activator:
         plt.legend()
         plt.savefig(os.path.join(self.plots_dir, "acc.png"))
 
-        # Roc auc plot
-        plt.clf()
-        plt.plot(self.epochs_list, self.train_auc, label="auc train")
-        plt.plot(self.epochs_list, self.valid_auc, label="auc validation")
-        plt.legend()
-        plt.savefig(os.path.join(self.plots_dir, "auc.png"))
+        if self.is_binary:
+            # Roc auc plot
+            plt.clf()
+            plt.plot(self.epochs_list, self.train_auc, label="auc train")
+            plt.plot(self.epochs_list, self.valid_auc, label="auc validation")
+            plt.legend()
+            plt.savefig(os.path.join(self.plots_dir, "auc.png"))
 
         # Loss plot
         plt.clf()

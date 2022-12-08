@@ -9,7 +9,7 @@ class Model(nn.Module):
 
         self.dropout = nn.Dropout(params["dropout"])
         self.activation = params["activation"]
-        self.softmax = nn.Softmax()
+        self.end_function = params["end_function"]
 
         for (in_size, out_size, use_dropout) in params["layers"]:
             self.layers.append(nn.Linear(in_size, out_size))
@@ -24,6 +24,6 @@ class Model(nn.Module):
                 x = self.activation(x)
 
         x = x.squeeze(1)
-        x = self.activation(x)
-        # Should we use softmax??
+        # Sigmoid if binary, else id function (we will use softmax in the loss)
+        x = self.end_function(x)
         return x

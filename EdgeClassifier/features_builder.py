@@ -30,6 +30,8 @@ class FeaturesBuilder:
         self.graph_pkl_path = path.join(pkl_folder, graph_name)
 
         self.graph_name = graph_name
+        # This is an important line -
+        # it names the nodes by the order they will be ordered in the output of graph-measure.
         self.nxg = nx.convert_node_labels_to_integers(nxg)
 
         self._nodes_features = None
@@ -56,14 +58,14 @@ class FeaturesBuilder:
         with open(pkl_path, "wb") as f:
             pickle.dump(obj, f, pickle.DEFAULT_PROTOCOL)
 
-    def build(self):
+    def build(self, force_build=False):
         pkl_path_x_train = path.join(self.graph_pkl_path, "x_train.pkl")
         pkl_path_x_test = path.join(self.graph_pkl_path, "x_test.pkl")
         pkl_path_y_train = path.join(self.graph_pkl_path, "y_train.pkl")
         pkl_path_y_test = path.join(self.graph_pkl_path, "y_test.pkl")
 
         if path.exists(pkl_path_x_train) and path.exists(pkl_path_x_test) and \
-                path.exists(pkl_path_y_train) and path.exists(pkl_path_y_test):
+                path.exists(pkl_path_y_train) and path.exists(pkl_path_y_test) and not force_build:
             self.x_train = self.pickle_load(pkl_path_x_train)
             self.x_test = self.pickle_load(pkl_path_x_test)
             self.y_train = self.pickle_load(pkl_path_y_train)
