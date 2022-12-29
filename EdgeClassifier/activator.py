@@ -90,7 +90,7 @@ class Activator:
         self.valid_auc = []
         self.valid_acc = []
 
-        self.epochs_list = [i for i in range(self.epochs)]
+        self.epochs_list = []
 
         # Used for early stopping
         self.valid_bad_epoch_counter = 0
@@ -117,6 +117,8 @@ class Activator:
         self.should_tqdm = should_tqdm
 
         for epoch in range(self.epochs):
+            self.epochs_list.append(epoch)  # Because early stopping might happen.
+
             train_results = self.run_epoch(self.train_loader, is_training=True)
             with torch.no_grad():
                 valid_results = self.run_epoch(self.validation_loader, is_training=False)
